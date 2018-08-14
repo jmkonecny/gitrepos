@@ -2,70 +2,118 @@
 from subprocess import Popen, PIPE
 import sys
 import json
+import os
 
-
+auth = True
 multi_page = True
-account_type = "orgs"
+clone_all = True
+accnt_type = "orgs"
+directory = "."
+usage = "Usage: gitrepo <username> [options]" + os.linesep + "  -p:  process only the first page of repos" \
+        + os.linesep + "  -u:  process the given username as a user [default: organization]" \
+        + os.linesep + "  -n:  skips token-based authentication" \
+        + os.linesep + "  -l:  lists all repositories without cloning" \
+        + os.linesep + "  -d <directory>:  clones repositories to the given directory"
 
 
+# lists all repositories from the specified github user
 def main():
     if len(sys.argv) < 2:
-        print("Usage: gitrepo <username>")
+        print(usage)
         exit(1)
     elif len(sys.argv) > 2:
-        process_commands()
+        process_arguments()
 
-    # throws an exception if the username contains any characters: \,/,[,],{,},<,>
-    user = sys.argv[1]
-    chars = "\\/[]{}<>"
-    for char in chars:
-        if char in user:
-            raise ValueError("Username cannot contain given char:", char)
+    # throws an exception if the username contains any characters: /,\,[,],{,},<,>
+    username = sys.argv[1]
+    if contains_invalid(username):
+        raise ValueError("Username cannot contain characters: /,\,[,],{,},<,>")
 
-    # prompts the user for an authentication token
-    token = input("Personal Access Token: ")
+    if auth:
+        # prompts the user for an authentication token
+        token = input("Personal Access Token: ")
+        api_link = "https://api.github.com/{}/{}/repos?per_page=100&access_token={}".format(accnt_type, username, token)
+    else:
+        token = ""
+        api_link = "https://api.github.com/{}/{}/repos?per_page=100".format(accnt_type, username)
 
-    api_link = "https://api.github.com/{}/{}/repos?per_page=100&access_token={}".format(account_type, user, token)
     # gets the list of all repository clone urls
     list_repositories = get_all_repos(api_link, token)
     print(str(len(list_repositories)) + " repositories found")
 
-    # clones all found repositories
-    clone_all_repos(list_repositories)
+    if clone_all:
+        # clones all found repositories
+        clone_all_repos(list_repositories)
 
 
-def process_commands():
+# returns whether or not the given string contains invalid characters
+def contains_invalid(str):
+    chars = "\/[]{}<>"
+    for char in chars:
+        if char in str:
+            return True
+    return False
+
+
+# processes program arguments and sets necessary options
+def process_arguments():
     for i in range(2, len(sys.argv)):
         cmd = sys.argv[i]
+        # processes only the first page of repositories
         if cmd == "-p":
             global multi_page
             multi_page = False
-        elif cmd == "-u":
-            global account_type
-            account_type = "users"
+        # sets the account type as a 'user' instead of 'organization'
+        elif cmd == "-u" or cmd == "--user":
+            global accnt_type
+            accnt_type = "users"
+        # skips token-based authentication (required for private repos)
+        elif cmd == "-n" or cmd == "--noauth":
+            global auth
+            auth = False
+        # lists all repositories without cloning them
+        elif cmd == "-l" or cmd == "--list":
+            global clone_all
+            clone_all = False
+        elif cmd == "-d" or cmd == "--directory":
+            global directory
+            if (i + 1) >= len(sys.argv) or sys.argv[i + 1][0] == "-":
+                print(usage)
+                raise ValueError("No directory specified")
+            else:
+                directory = sys.argv[i + 1]
+                if directory[-1] != "/":
+                    directory += "/"
 
 
+# returns a list of all .git repository links, given the github api url and auth token
 def get_all_repos(api_link, token):
-    if multi_page:
-        last_page = get_last_page(api_link)
-    else:
-        last_page = 1
+    last_page = get_last_page(api_link)
     return grab_repos(last_page, api_link, token)
 
 
+# returns the number of pages containing repository links
 def get_last_page(link):
-    head = ["curl", "-I", link, "|", "grep", "Link:"]
-    execute = Popen(head, stdout=PIPE, stderr=PIPE)
-    out, err = execute.communicate()
-    head_out = out.decode()
-    head_out = head_out.split("page=")
-    last_page = int(head_out[-1][:1])
-    return last_page
+    if not multi_page:
+        return 1
+    else:
+        head = ["curl", "-I", link, "|", "grep", "Link:"]
+        execute = Popen(head, stdout=PIPE, stderr=PIPE)
+        out, err = execute.communicate()
+        head_out = out.decode()
+        head_out = head_out.split("page=")
+        if len(head_out) == 1:
+            return 1
+        else:
+            return int(head_out[-1][:1])
 
 
+# parses the response from every github api page for repository url's
 def grab_repos(last_page, api_link, token):
+    # initialize list of repositories
     repos = []
     if last_page > 0:
+        # iterates through all github pages
         for i in range(0, last_page + 1):
             api_link += "&page=" + str(i)
             curl_link = ["curl", api_link]
@@ -73,17 +121,33 @@ def grab_repos(last_page, api_link, token):
             out, err = execute.communicate()
             json_out = json.loads(out)
 
+            # throws an exception if no repositories are found
+            if 'message' in json_out and json_out['message'] == 'Not Found':
+                print("No user/organization found by given username")
+                print(usage)
+                exit(1)
             for repo in json_out:
-                url = "https://{}@".format(token) + repo['clone_url'][8:]
+                if auth:
+                    # appends the authentication token to the clone url
+                    url = "https://{}@".format(token) + repo['clone_url'][8:]
+                else:
+                    url = repo['clone_url']
+
+                # prevents duplicate repositories from being added to the list
                 if url not in repos:
                     repos.append(url)
                     print("Found repository:", repo['clone_url'])
     return repos
 
 
+# clones all repositories in the given list of the repository urls with 'git clone <reopo link>'
 def clone_all_repos(list_repos):
     for repo in list_repos:
         clone = ["git", "clone", repo]
+        if directory != ".":
+            # appends the specified the cloning directory
+            path = directory + repo.split("/")[-1].split(".")[0]
+            clone.append(path)
         Popen(clone)
 
 
