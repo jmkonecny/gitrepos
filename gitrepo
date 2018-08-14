@@ -9,6 +9,8 @@ def main():
     if not len(sys.argv) == 2:
         print("Usage: gitrepo <username>")
         exit(1)
+    elif len(sys.argv) > 2:
+        exit(0)
     else:
         user = sys.argv[1]
         token = input("Token: ")
