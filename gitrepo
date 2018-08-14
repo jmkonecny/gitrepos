@@ -1,26 +1,66 @@
 #!/usr/bin/python3
-
-from subprocess import call, Popen, PIPE
+from subprocess import Popen, PIPE
 import sys
 import json
 
 
+multi_page = True
+account_type = "orgs"
+
+
 def main():
-    if not len(sys.argv) == 2:
+    if len(sys.argv) < 2:
         print("Usage: gitrepo <username>")
         exit(1)
     elif len(sys.argv) > 2:
-        exit(0)
-    else:
-        user = sys.argv[1]
-        token = input("Token: ")
-        api_link = "https://api.github.com/orgs/{}/repos?per_page=100&access_token={}".format(user, token)
-        repos = get_last_page(api_link, token)
-        print(str(len(repos)) + " repositories found")
+        process_commands()
 
-        for repo in repos:
-            clone = ["git", "clone", repo]
-            Popen(clone)
+    # throws an exception if the username contains any characters: \,/,[,],{,},<,>
+    user = sys.argv[1]
+    chars = "\\/[]{}<>"
+    for char in chars:
+        if char in user:
+            raise ValueError("Username cannot contain given char:", char)
+
+    # prompts the user for an authentication token
+    token = input("Personal Access Token: ")
+
+    api_link = "https://api.github.com/{}/{}/repos?per_page=100&access_token={}".format(account_type, user, token)
+    # gets the list of all repository clone urls
+    list_repositories = get_all_repos(api_link, token)
+    print(str(len(list_repositories)) + " repositories found")
+
+    # clones all found repositories
+    clone_all_repos(list_repositories)
+
+
+def process_commands():
+    for i in range(2, len(sys.argv)):
+        cmd = sys.argv[i]
+        if cmd == "-p":
+            global multi_page
+            multi_page = False
+        elif cmd == "-u":
+            global account_type
+            account_type = "users"
+
+
+def get_all_repos(api_link, token):
+    if multi_page:
+        last_page = get_last_page(api_link)
+    else:
+        last_page = 1
+    return grab_repos(last_page, api_link, token)
+
+
+def get_last_page(link):
+    head = ["curl", "-I", link, "|", "grep", "Link:"]
+    execute = Popen(head, stdout=PIPE, stderr=PIPE)
+    out, err = execute.communicate()
+    head_out = out.decode()
+    head_out = head_out.split("page=")
+    last_page = int(head_out[-1][:1])
+    return last_page
 
 
 def grab_repos(last_page, api_link, token):
@@ -41,15 +81,10 @@ def grab_repos(last_page, api_link, token):
     return repos
 
 
-def get_last_page(link, token):
-    head = ["curl", "-I", link, "|", "grep", "Link:"]
-    execute = Popen(head, stdout=PIPE, stderr=PIPE)
-    out, err = execute.communicate()
-    head_out = out.decode()
-    head_out = head_out.split("page=")
-    last = int(head_out[-1][:1])
-
-    return grab_repos(last, link, token)
+def clone_all_repos(list_repos):
+    for repo in list_repos:
+        clone = ["git", "clone", repo]
+        Popen(clone)
 
 
 if __name__ == '__main__':
