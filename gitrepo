@@ -1,0 +1,54 @@
+#!/usr/bin/python3
+
+from subprocess import call, Popen, PIPE
+import sys
+import json
+
+
+def main():
+    if not len(sys.argv) == 2:
+        print("Usage: gitrepo <username>")
+        exit(1)
+    else:
+        user = sys.argv[1]
+        token = input("Token: ")
+        api_link = "https://api.github.com/orgs/{}/repos?per_page=100&access_token={}".format(user, token)
+        repos = get_last_page(api_link, token)
+        print(str(len(repos)) + " repositories found")
+
+        for repo in repos:
+            clone = ["git", "clone", repo]
+            Popen(clone)
+
+
+def grab_repos(last_page, api_link, token):
+    repos = []
+    if last_page > 0:
+        for i in range(0, last_page + 1):
+            api_link += "&page=" + str(i)
+            curl_link = ["curl", api_link]
+            execute = Popen(curl_link, stdout=PIPE, stderr=PIPE)
+            out, err = execute.communicate()
+            json_out = json.loads(out)
+
+            for repo in json_out:
+                url = "https://{}@".format(token) + repo['clone_url'][8:]
+                if url not in repos:
+                    repos.append(url)
+                    print("Found repository:", repo['clone_url'])
+    return repos
+
+
+def get_last_page(link, token):
+    head = ["curl", "-I", link, "|", "grep", "Link:"]
+    execute = Popen(head, stdout=PIPE, stderr=PIPE)
+    out, err = execute.communicate()
+    head_out = out.decode()
+    head_out = head_out.split("page=")
+    last = int(head_out[-1][:1])
+
+    return grab_repos(last, link, token)
+
+
+if __name__ == '__main__':
+    main()
