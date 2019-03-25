@@ -2,10 +2,10 @@
 Clones all repositories from the specified GitHub organization or user.
 
 ## Usage
-- Requires Python 3.X
+- Requires *Python 3.X*
 - Usage: <code>gitrepos <username> [options]</code>
-  - -p:  process only the first page of repos
-  - -u:  process the given username as a user [default: organization]
-  - -n:  skips token-based authentication
-  - -l:  lists all repositories without cloning
-  - -d <directory>:  clones repositories to the given directory
+  - <code>-p</code>:  process only the first page of repos
+  - <code>-u</code>:  process the given username as a user [default: organization]
+  - <code>-n</code>:  skips token-based authentication
+  - <code>-l</code>:  lists all repositories without cloning
+  - <code>-d <directory></code>:  clones repositories to the given directory
